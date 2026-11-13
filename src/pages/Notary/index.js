@@ -166,9 +166,14 @@ form.addEventListener('submit', async (event) => {
       ['sent', `${session.sentBytes} bytes`],
       ['received', `${session.receivedBytes} bytes`],
       ['revealed', `${session.revealed.sentBytes} + ${session.revealed.recvBytes} bytes`],
-      ['sent_sha256', session.sentSha256],
-      ['received_sha256', session.receivedSha256],
     ];
+    for (const note of session.notes || []) {
+      rows.push(['note', note]);
+    }
+    rows.push(
+      ['sent_sha256', session.sentSha256],
+      ['received_sha256', session.receivedSha256]
+    );
 
     let link = null;
     try {
