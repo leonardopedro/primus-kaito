@@ -159,6 +159,7 @@ form.addEventListener('submit', async (event) => {
     log(
       `revealed ${session.revealed.sentBytes} request and ${session.revealed.recvBytes} response byte(s)`
     );
+    for (const note of session.notes || []) log(note);
 
     const rows = [
       ['status', String(session.status)],

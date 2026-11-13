@@ -62,7 +62,9 @@ export async function cookiesFor(host) {
  * @param {string} [options.notaryUrl] WebSocket URL of the notary
  * @param {{mode: 'all'|'headers'|'match', needle?: string}} [options.reveal] what the record discloses
  * @param {(event: {step: string, progress: number, message: string}) => void} [options.onProgress]
- * @returns {Promise<{status, sentBytes, receivedBytes, sentSha256, receivedSha256, recvText, revealed}>}
+ * @returns {Promise<{status, sentBytes, receivedBytes, sentSha256, receivedSha256, recvText, notes, revealed}>}
+ *   `notes` carries the reveal's warnings (a needle that is request-only, or a
+ *   matching request line that stays withheld), already meant for the log.
  */
 export function notarize({
   serverName,

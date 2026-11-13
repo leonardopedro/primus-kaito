@@ -71,61 +71,124 @@ function merge(ranges) {
   return out;
 }
 
-/** The request, header block only, without the lines that carry a credential. */
-function sentRanges(sent) {
+/** The request header lines, each flagged when it carries a credential. */
+function requestLines(sent) {
   const end = headerEnd(sent);
-  const ranges = [];
+  const lines = [];
   let lineStart = 0;
+  const push = (stop) => {
+    const lower = new TextDecoder('latin1').decode(sent.subarray(lineStart, stop)).toLowerCase();
+    lines.push({
+      start: lineStart,
+      end: stop,
+      secret: SECRET_HEADERS.some((name) => lower.startsWith(name)),
+    });
+  };
   for (let i = 0; i < end; i++) {
     if (sent[i] !== 10) continue;
-    const lower = new TextDecoder('latin1')
-      .decode(sent.subarray(lineStart, i + 1))
-      .toLowerCase();
-    if (!SECRET_HEADERS.some((name) => lower.startsWith(name))) {
-      ranges.push({ start: lineStart, end: i + 1 });
-    }
+    push(i + 1);
     lineStart = i + 1;
   }
-  if (lineStart < end) ranges.push({ start: lineStart, end });
-  return merge(ranges);
+  if (lineStart < end) push(end);
+  return lines;
 }
 
-/** The response: everything, headers only, or the lines matching a needle. */
-function recvRanges(recv, reveal) {
-  const mode = reveal?.mode || 'all';
-  if (mode === 'all') return [{ start: 0, end: recv.length }];
+/** The request, header block only, without the lines that carry a credential. */
+function sentRanges(sent) {
+  return merge(
+    requestLines(sent)
+      .filter((line) => !line.secret)
+      .map(({ start, end }) => ({ start, end }))
+  );
+}
 
-  const end = headerEnd(recv);
-  if (mode === 'headers') return [{ start: 0, end }];
+/** ASCII case folding, so `User-agent` finds `user-agent:` — header names are
+ *  conventionally lowercase on the wire but nobody types them that way. */
+function fold(byte) {
+  return byte >= 65 && byte <= 90 ? byte + 32 : byte;
+}
 
-  const needle = encoder.encode(String(reveal?.needle || ''));
-  if (needle.length === 0) throw new Error('this reveal needs a search string');
-
-  const ranges = [{ start: 0, end }];
-  let found = 0;
-  for (let i = 0; i + needle.length <= recv.length; i++) {
+/**
+ * The whole lines of `bytes` that contain `needle`, searched between
+ * `from` and `to`, never extending a line above `floor`.
+ *
+ * The whole line is published rather than the fragment so the revealed text
+ * reads as a header line or a body line instead of an orphaned substring.
+ */
+function needleLines(bytes, needle, { from = 0, to = bytes.length, floor = 0 } = {}) {
+  const ranges = [];
+  for (let i = from; i + needle.length <= to; i++) {
     let hit = true;
     for (let j = 0; j < needle.length; j++) {
-      if (recv[i + j] !== needle[j]) {
+      if (fold(bytes[i + j]) !== fold(needle[j])) {
         hit = false;
         break;
       }
     }
     if (!hit) continue;
-    found += 1;
-    // Publish the whole line the match sits on, so the revealed text is
-    // readable rather than a fragment.
     let start = i;
-    while (start > end && recv[start - 1] !== 10) start--;
+    while (start > floor && bytes[start - 1] !== 10) start--;
     let stop = i + needle.length;
-    while (stop < recv.length && recv[stop] !== 10) stop++;
-    ranges.push({ start, end: Math.min(recv.length, stop + 1) });
+    while (stop < bytes.length && bytes[stop] !== 10) stop++;
+    ranges.push({ start, end: Math.min(bytes.length, stop + 1) });
     i = stop;
   }
-  if (found === 0) {
-    throw new Error(`the response does not contain ${JSON.stringify(String(reveal.needle))}`);
+  return ranges;
+}
+
+/**
+ * What to disclose: the request header block (minus credentials), plus the
+ * response — all of it, its headers only, or the lines matching a needle in
+ * EITHER direction.
+ *
+ * Searching the request too is what makes a needle like `User-agent` usable,
+ * since a request header never appears in the response. A match on a withheld
+ * request line (cookie/authorization) is reported but never disclosed, and a
+ * needle that misses the response is called out as a warning rather than
+ * silently succeeding on request evidence alone.
+ */
+function revealRanges(sent, recv, reveal) {
+  const mode = reveal?.mode || 'all';
+  const sentReveal = sentRanges(sent);
+  const notes = [];
+  const headerLimit = headerEnd(recv);
+
+  if (mode === 'all') {
+    return { sent: sentReveal, recv: [{ start: 0, end: recv.length }], notes };
   }
-  return merge(ranges);
+  if (mode === 'headers') {
+    return { sent: sentReveal, recv: [{ start: 0, end: headerLimit }], notes };
+  }
+
+  const needle = encoder.encode(String(reveal?.needle || ''));
+  if (needle.length === 0) throw new Error('this reveal needs a search string');
+  const quoted = JSON.stringify(String(reveal.needle));
+
+  const requestHits = needleLines(sent, needle, { to: headerEnd(sent) });
+  const lines = requestLines(sent);
+  const secretHits = requestHits.filter((hit) =>
+    lines.some((line) => line.secret && hit.start >= line.start && hit.start < line.end)
+  );
+  const responseHits = needleLines(recv, needle, { from: headerLimit, floor: headerLimit });
+
+  if (responseHits.length === 0) {
+    notes.push(`warning: the response does not contain ${quoted}`);
+    if (requestHits.length > secretHits.length) {
+      notes.push(`it matched the request only — that is all this record discloses for it`);
+    }
+  }
+  if (secretHits.length > 0) {
+    notes.push(`a matching request line is a credential (cookie/authorization) and stays withheld`);
+  }
+  if (responseHits.length === 0 && requestHits.length === 0) {
+    throw new Error(`neither the request nor the response contains ${quoted}`);
+  }
+
+  return {
+    sent: sentReveal,
+    recv: merge([{ start: 0, end: headerLimit }, ...responseHits]),
+    notes,
+  };
 }
 
 /** The transcript as the notary signs it: same length, withheld bytes zeroed. */
@@ -193,8 +256,7 @@ async function run({ notaryUrl, serverName, path, headers, cookie, maxSent, maxR
     const sent = new Uint8Array(transcript.sent);
     const received = new Uint8Array(transcript.recv);
 
-    const sentReveal = sentRanges(sent);
-    const recvReveal = recvRanges(received, reveal);
+    const { sent: sentReveal, recv: recvReveal, notes } = revealRanges(sent, received, reveal);
     await prover.reveal({ sent: sentReveal, recv: recvReveal, server_identity: true });
     await prover.finish();
 
@@ -206,6 +268,7 @@ async function run({ notaryUrl, serverName, path, headers, cookie, maxSent, maxR
       sentSha256: await digest(maskRanges(sent, sentReveal)),
       receivedSha256: await digest(maskRanges(received, recvReveal)),
       recvText: new TextDecoder().decode(received),
+      notes,
       revealed: {
         sentRanges: sentReveal.length,
         recvRanges: recvReveal.length,
