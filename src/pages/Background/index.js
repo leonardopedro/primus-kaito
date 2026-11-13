@@ -105,8 +105,11 @@ chrome.action.onClicked.addListener((tab) => {
   showIndex();
 });
 
+// The toolbar opens the notary surface: one form, no CLI, and a full tab so the
+// session survives for as long as the MPC runs. The Primus home page stays
+// reachable from a link there.
 const showIndex = (info, tab) => {
-  let url = chrome.runtime.getURL('home.html');
+  let url = chrome.runtime.getURL('notary.html');
   chrome.tabs.create({ url });
 };
 

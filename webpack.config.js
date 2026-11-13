@@ -72,6 +72,7 @@ var options = {
       'lumaMonadEvent',
       'index.js'
     ),
+    notary: path.join(__dirname, 'src', 'pages', 'Notary', 'index.js'),
     xPage: path.join(__dirname, 'src', 'content', 'xPage', 'index.js'),
     xEvent: path.join(__dirname, 'src', 'content', 'xEvent', 'index.js'),
     //offscreen: path.join(__dirname, 'src', 'services', 'algorithms', 'offscreen.js'),
@@ -261,6 +262,26 @@ var options = {
           to: path.join(__dirname, 'build'),
           force: true,
         },
+        // The tlsn prover is copied verbatim, not bundled: wasm-bindgen's
+        // package uses `import.meta.url`, a worker snippet and a bare wasm
+        // fetch, all of which break once webpack rewrites their URLs.
+        {
+          from: 'src/services/tlsn/pkg',
+          to: path.join(__dirname, 'build', 'tlsn'),
+          force: true,
+        },
+        // The prover worker and its socket channel sit beside the package, so
+        // their imports stay plain relative module loads.
+        {
+          from: 'src/services/tlsn/worker.js',
+          to: path.join(__dirname, 'build', 'tlsn', 'worker.js'),
+          force: true,
+        },
+        {
+          from: 'src/services/tlsn/wsChannel.js',
+          to: path.join(__dirname, 'build', 'tlsn', 'wsChannel.js'),
+          force: true,
+        },
         {
           from: 'src/services/algorithms/offscreen.html',
           to: path.join(__dirname, 'build'),
@@ -403,6 +424,12 @@ var options = {
       template: path.join(__dirname, 'src', 'pages', 'Home', 'index.html'),
       filename: 'home.html',
       chunks: ['home'],
+      cache: false,
+    }),
+    new HtmlWebpackPlugin({
+      template: path.join(__dirname, 'src', 'pages', 'Notary', 'index.html'),
+      filename: 'notary.html',
+      chunks: ['notary'],
       cache: false,
     }),
     new FriendlyErrorsWebpackPlugin(),

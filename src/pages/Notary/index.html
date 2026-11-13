@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Notarise a session</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #ffffff;
+        --fg: #16181d;
+        --muted: #666e7a;
+        --line: #e3e6ea;
+        --accent: #2f6df6;
+        --ok: #1f7a45;
+        --bad: #b3261e;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #16181d;
+          --fg: #e8eaed;
+          --muted: #99a1ad;
+          --line: #2b2f37;
+        }
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        padding: 28px 24px 60px;
+        background: var(--bg);
+        color: var(--fg);
+        font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+      main { max-width: 780px; margin: 0 auto; }
+      h1 { font-size: 20px; margin: 0 0 4px; }
+      p.lede { margin: 0 0 22px; color: var(--muted); }
+      form { display: grid; gap: 14px; margin-bottom: 22px; }
+      .row { display: grid; gap: 6px; }
+      .row.split { grid-template-columns: 2fr 3fr; gap: 14px; }
+      label { font-weight: 600; font-size: 12px; letter-spacing: 0.02em; text-transform: uppercase; color: var(--muted); }
+      select {
+        width: 100%;
+        padding: 9px 11px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: transparent;
+        color: inherit;
+        font: 13px/1.4 system-ui, sans-serif;
+      }
+      input[type="text"] {
+        width: 100%;
+        padding: 9px 11px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: transparent;
+        color: inherit;
+        font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      .check { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+      button {
+        justify-self: start;
+        padding: 10px 20px;
+        border: 0;
+        border-radius: 8px;
+        background: var(--accent);
+        color: #fff;
+        font: 600 14px/1 system-ui, sans-serif;
+        cursor: pointer;
+      }
+      button:disabled { opacity: 0.55; cursor: default; }
+      #log {
+        margin: 0 0 18px;
+        padding: 12px 14px;
+        min-height: 84px;
+        max-height: 240px;
+        overflow: auto;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      #log:empty { display: none; }
+      #result { border: 1px solid var(--line); border-radius: 8px; padding: 16px; }
+      #result[hidden] { display: none; }
+      #result h2 { font-size: 14px; margin: 0 0 10px; }
+      dl { display: grid; grid-template-columns: 150px 1fr; gap: 6px 14px; margin: 0 0 12px; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+      dt { color: var(--muted); }
+      dd { margin: 0; word-break: break-all; }
+      a { color: var(--accent); }
+      .status-ok { color: var(--ok); font-weight: 600; }
+      .status-bad { color: var(--bad); font-weight: 600; }
+      details { margin-top: 10px; }
+      summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+      pre { margin: 8px 0 0; max-height: 260px; overflow: auto; padding: 10px; border-radius: 6px; background: rgba(127, 127, 127, 0.1); font-size: 11px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Notarise a session</h1>
+      <p class="lede">
+        The notary in <code>login.airma.de</code> relays a TLS connection to the
+        chosen host and signs a record of it. Nothing about the target page is
+        modified — the prover opens its own connection, using your cookies when
+        you allow it.
+      </p>
+
+      <form id="form">
+        <div class="row split">
+          <div class="row">
+            <label for="host">Host</label>
+            <input id="host" type="text" spellcheck="false" />
+          </div>
+          <div class="row">
+            <label for="path">Request path</label>
+            <input id="path" type="text" spellcheck="false" />
+          </div>
+        </div>
+        <div class="row">
+          <label for="notary">Notary</label>
+          <input id="notary" type="text" spellcheck="false" />
+        </div>
+        <label class="check"><input id="useCookies" type="checkbox" checked /> Send this browser's cookies for the host</label>
+        <div class="row split">
+          <div class="row">
+            <label for="reveal">What the record reveals</label>
+            <select id="reveal">
+              <option value="all">the whole response</option>
+              <option value="headers">only the response headers</option>
+              <option value="match">only the lines matching…</option>
+            </select>
+          </div>
+          <div class="row">
+            <label for="needle">…this text</label>
+            <input id="needle" type="text" spellcheck="false" placeholder="e.g. email" disabled />
+          </div>
+        </div>
+        <button id="run" type="submit">Notarise</button>
+      </form>
+
+      <div id="log"></div>
+
+      <section id="result" hidden>
+        <h2 id="resultTitle"></h2>
+        <dl id="resultBody"></dl>
+        <div id="resultLink"></div>
+        <details>
+          <summary>Response as the prover saw it</summary>
+          <pre id="responseText"></pre>
+        </details>
+      </section>
+
+      <p class="lede" style="margin-top: 26px">
+        <a id="homeLink" href="home.html">Primus home</a>
+      </p>
+    </main>
+  </body>
+</html>
